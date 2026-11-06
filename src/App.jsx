@@ -13,6 +13,7 @@ import EnrollmentPage from "./pages/EnrollmentPage";
 import SchoolBulletinPage from "./pages/SchoolBulletinPage";
 import Form137Page from "./pages/Form137Page";
 import TeachingLoadPage from "./pages/TeachingLoadPage";
+import BspPage from "./pages/BspPage";
 import SplashScreen from "./components/SplashScreen";
 import "./App.css";
 
@@ -170,6 +171,7 @@ export default function App() {
       if (session) {
         setPage((prev) => (prev === "login" ? "dashboard" : prev));
       } else {
+        void window.ipc?.bsp?.close();
         setPage("login");
       }
     });
@@ -185,6 +187,7 @@ export default function App() {
   const handleLogout = async () => {
     const ok = await showConfirm("Are you sure you want to logout?");
     if (!ok) return;
+    await window.ipc?.bsp?.close();
     await supabase.auth.signOut();
     setSession(null);
     setPage("login");
@@ -216,6 +219,10 @@ export default function App() {
           onNavigate={setPage}
           {...sharedProps}
         />
+      )}
+
+      {page === "bsp" && session && (
+        <BspPage onBack={() => setPage("dashboard")} onLogout={handleLogout} user={session.user} {...sharedProps} />
       )}
 
       {page === "mooe" && session && (

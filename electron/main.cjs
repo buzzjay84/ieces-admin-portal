@@ -3,6 +3,17 @@ const { autoUpdater } = require('electron-updater')
 const path = require('path')
 const fs = require('fs')
 const printing = require('./print.cjs')
+const bsp = require('./bsp/main.cjs')
+
+const ownsInstanceLock = app.requestSingleInstanceLock()
+if (!ownsInstanceLock) app.quit()
+app.on('second-instance', () => {
+  const target = BrowserWindow.getAllWindows().find(w => w.getParentWindow() === win && (w.isVisible() || w.isMinimized())) || win
+  if (!target || target.isDestroyed()) return
+  if (target.isMinimized()) target.restore()
+  target.show()
+  target.focus()
+})
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
@@ -153,7 +164,7 @@ function createWindow() {
   })
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => { if (ownsInstanceLock) createWindow() })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 
@@ -221,3 +232,11 @@ app.on('will-quit', printing.cleanupPrintPreviewDir)
 // Updater IPC
 ipcMain.handle('update:check', () => autoUpdater.checkForUpdates())
 ipcMain.handle('update:quitAndInstall', () => autoUpdater.quitAndInstall())
+
+ipcMain.handle('bsp:open', e => {
+  if (e.sender !== win?.webContents) throw new Error('Only the portal can open BSP Registration.');
+  return bsp.open(win);
+});
+ipcMain.handle('bsp:close', e => {
+  if (e.sender === win?.webContents) bsp.close();
+});

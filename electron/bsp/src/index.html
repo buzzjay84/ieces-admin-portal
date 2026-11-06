@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>BSP Registration</title>
+<link rel="icon" href="assets/bsp-logo.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <img class="logo" src="assets/bsp-logo.png" alt="Boy Scouts of the Philippines logo">
+      <div>
+        <div class="brand-title">BSP Registration <span class="brand-version" id="appVersion"></span></div>
+        <div class="brand-sub" id="councilLabel">Boy Scouts of the Philippines</div>
+      </div>
+    </div>
+    <nav class="tabs">
+      <button data-act="nav" data-view="summary">Summary</button>
+      <button data-act="nav" data-view="online">Online</button>
+      <button data-act="nav" data-view="units">Units (Scouts)</button>
+      <button data-act="nav" data-view="adults">Adults</button>
+      <button data-act="nav" data-view="settings">Settings</button>
+    </nav>
+  </header>
+  <main id="main"></main>
+</div>
+<div id="print"></div>
+<div id="toast"></div>
+<script src="print-preview.js"></script>
+<script src="registration.js"></script>
+<script src="app.js"></script>
+<script src="cloud-workspace.js"></script>
+</body>
+</html>

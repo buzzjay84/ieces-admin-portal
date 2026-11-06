@@ -1,6 +1,6 @@
 {
   "name": "ieces-admin-portal",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "IECES Admin Portal",
   "author": "BuzzJay",
   "repository": {
@@ -16,6 +16,7 @@
     "electron:dev": "vite",
     "dev:electron": "npm run electron:dev",
     "build": "vite build",
+    "test:bsp": "node scripts/test-bsp.cjs",
     "preview": "vite preview",
     "electron": "electron .",
     "postinstall": "electron-builder install-app-deps",
@@ -46,7 +47,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "jaybhee84",
+        "owner": "buzzjay84",
         "repo": "ieces-admin-portal",
         "releaseType": "release"
       }

@@ -1,0 +1,53 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+const { PGlite } = require(process.env.PGLITE_MODULE || '@electric-sql/pglite');
+(async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(`create role anon; create role authenticated; create schema auth;
+      create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;`);
+    await db.exec(fs.readFileSync(path.join(__dirname, 'fixtures/bsp_registrations.sql'), 'utf8'));
+    await db.exec(`alter table public.bsp_registrations add column ar_no text, add column receipt_printed_at timestamptz,
+      add column camp_ar_no text, add column camp_receipt_printed_at timestamptz, add column camp_requested boolean default false, add column sy text;
+      create function public.bsp_publish_fees(text,jsonb,text,text,text,text) returns void language sql as $$ select $$;
+      insert into public.bsp_admins values ('admin@example.invalid');
+      insert into public.bsp_registrations (id, reg_type, surname, given_name, consent) values ('00000000-0000-4000-8000-000000000001','scout','Existing','Learner',true);`);
+    const migration = fs.readFileSync(path.join(__dirname, '../../supabase-bsp-workspace.sql'), 'utf8');
+    await db.exec(migration); await db.exec(migration);
+    await db.exec(`set role authenticated; set request.jwt.claims = '{"email":"outsider@example.invalid"}';`);
+    const document = { units: [{ id: 'u1', sponsor: 'School', unitType: 'Kawan', unitNo: '1', scouts: [{ id: 's1', onlineId: '00000000-0000-4000-8000-000000000001', surname: 'Existing', given: 'Learner', sex: 'M', grade: 'Grade 2', status: 'N', payment: { amountPaid: 50, receiptNo: 'AR-00001' } }] }], adults: [], settings: { nextReceipt: 2, schoolYear: '2026' }, archives: {} };
+    const save = (revision, doc) => db.query('select * from public.bsp_save_workspace($1, $2::jsonb)', [revision, JSON.stringify(doc)]);
+    await assert.rejects(save(0, document), /administrator access/);
+    assert.equal((await db.query('select * from public.bsp_workspace')).rows.length, 0);
+    await db.exec(`set request.jwt.claims = '{"email":"admin@example.invalid"}';`);
+    const first = await save(0, document); assert.equal(Number(first.rows[0].revision), 1);
+    assert.equal((await db.query('select ar_no from public.bsp_registrations')).rows[0].ar_no, 'AR-00001');
+    const edited = structuredClone(document); edited.units[0].scouts[0].surname = 'Corrected';
+    await save(1, edited);
+    await assert.rejects(save(1, document), /newer BSP records/);
+    assert.equal((await db.query('select surname from public.bsp_registrations')).rows[0].surname, 'Corrected');
+    const invalid = structuredClone(edited); invalid.units[0].scouts[0].payment.amountPaid = -1;
+    await assert.rejects(save(2, invalid), /must not be negative/);
+    assert.equal(Number((await db.query('select revision from public.bsp_workspace')).rows[0].revision), 2);
+    const archived = structuredClone(edited); archived.archives['2026'] = { units: archived.units, adults: [] }; archived.units = [];
+    await save(2, archived);
+    assert.equal((await db.query('select status from public.bsp_registrations')).rows[0].status, 'imported', 'Rollover preserves historical website registrations');
+    await save(3, { ...edited, units: [] });
+    const rejected = (await db.query('select status, ar_no from public.bsp_registrations')).rows[0];
+    assert.equal(rejected.status, 'rejected'); assert.equal(rejected.ar_no, null);
+    await assert.rejects(db.exec(`update public.bsp_workspace set revision = 999;`), /permission denied/);
+    await db.exec('set role anon;');
+    await assert.rejects(db.exec('select * from public.bsp_workspace;'), /permission denied/);
+    await assert.rejects(save(4, edited), /permission denied/);
+    await db.exec('reset role; create publication supabase_realtime;');
+    await db.exec(fs.readFileSync(path.join(__dirname, '../../supabase-bsp-registration-control.sql'), 'utf8'));
+    await db.exec("update public.bsp_registration_control set enabled = false; set role anon; set request.jwt.claims = '{}';");
+    await assert.rejects(db.exec("insert into public.bsp_registrations(reg_type,surname,given_name,consent) values('scout','Closed','Public',true)"), /row-level security/);
+    await db.exec(`set role authenticated; set request.jwt.claims = '{"email":"admin@example.invalid"}';`);
+    await db.exec("insert into public.bsp_registrations(reg_type,surname,given_name,consent) values('scout','Closed','Desktop',true)");
+    await db.exec("reset role; update public.bsp_registration_control set enabled = true; set role anon; set request.jwt.claims = '{}';");
+    await db.exec("insert into public.bsp_registrations(reg_type,surname,given_name,consent) values('scout','Open','Public',true)");
+    console.log('PASS: PostgreSQL migration/rerun, admin authorization, private records, atomic payment/edit/delete projection, archive preservation, CAS conflicts, validation rollback, and blocked direct writes.');
+  } finally { await db.close(); }
+})().catch(err => { console.error(err); process.exitCode = 1; });

@@ -1,0 +1,146 @@
+(async () => {
+  const assert = (ok, message) => { if (!ok) throw new Error(message); };
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  await wait(100);
+  const previews = [];
+  let confirmationOptions;
+  window.bspPreview.open = (html, options) => { previews.push(html); confirmationOptions = options; };
+  document.querySelector('.tabs [data-view="online"]').click();
+  document.querySelector('.seg [data-view="registration"]').click();
+  let form = document.getElementById('websiteRegistration');
+  const set = (name, value) => {
+    const el = form.elements[name]; el.value = value;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  const fill = kind => {
+    set('reg_type', kind); set('surname', 'mILLAR'); set('given_name', 'jUAN cARLOS');
+    set('sex', 'M'); set('birthdate', '2010-01-01');
+    form.elements.consent.checked = true;
+    if (kind === 'scout') { set('grade', 'Grade 6'); set('reg_status', 'N'); set('guardian_name', 'mARIA aNA'); }
+    else set('role', 'LAY_ISR');
+  };
+  assert(document.querySelector('.tabs [data-view="online"]').classList.contains('active'), 'Online parent must stay active');
+  fill('scout');
+  assert(form.elements.given_name.value === 'Juan Carlos', 'Multiple names capitalization');
+  set('reg_status', 'RR'); set('years_in_scouting', '99');
+  assert(!form.checkValidity(), 'Visible invalid scouting years must block');
+  set('reg_status', 'N');
+  assert(form.checkValidity(), 'Hidden scouting years must not block new registration');
+  set('surname', '   '); form.requestSubmit();
+  assert(registrationTest.calls().length === 0, 'Whitespace name must not submit');
+  set('surname', 'millar');
+  form.requestSubmit();
+  form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  await wait(130);
+  let calls = registrationTest.calls();
+  assert(calls.length === 1, 'Repeated submit must send one request');
+  assert(calls[0].status === 'pending' && !calls[0].ar_no && !calls[0].payment, 'No payment submits a pending registration without payment or receipt');
+  assert(document.getElementById('registrationResult').textContent.includes('Pending payment'), 'Unpaid confirmation explains where the registration appears');
+  assert(calls[0].contact_no === null && calls[0].reg_type === 'scout', 'Blank contact must be nullable');
+  assert(!('years_in_scouting' in calls[0]), 'New registration must omit previous membership');
+  assert(document.getElementById('registrationResult').textContent.includes('Registration saved'), 'Success feedback');
+  assert(previews.length === 0, 'Unpaid registration must not open any print dialog');
+  assert(form.elements.given_name.value === '', 'Unpaid submission resets the completed form');
+  assert(!form.savedRegistration && online.paymentStatus === 'pending', 'Unpaid registration is complete and goes to Pending payment');
+  fill('adult');
+  assert(document.getElementById('registrationFee').textContent.includes('100.00'), 'Lay leader fee');
+  registrationTest.setMode('error'); form.requestSubmit(); await wait(130);
+  assert(form.elements.surname.value === 'Millar' && !form.inert, 'Failure must retain form and unlock it');
+  assert(document.getElementById('registrationResult').textContent.includes('Test connection failure'), 'Failure feedback');
+  assert(previews.length === 0, 'Failed submission must not open print preview');
+  registrationTest.setMode('success'); form.requestSubmit(); await wait(130);
+  calls = registrationTest.calls();
+  const adult = calls[calls.length - 1];
+  assert(adult.reg_type === 'adult' && adult.role === 'LAY_ISR', 'Adult payload');
+  assert(previews.length === 0 && !form.savedRegistration, 'Unpaid adult registration must not open print preview');
+  assert(!('guardian_name' in adult) && !('grade_section' in adult), 'Adult payload must exclude scout data');
+  fill('scout');
+  form.elements.paymentStatus.value = 'paid';
+  form.requestSubmit(); await wait(250);
+  assert(previews.at(-1).includes('ACKNOWLEDGMENT RECEIPT') && previews.at(-1).includes('AR-00001'), 'Paid new registration uses numbered acknowledgment receipt');
+  const paidEntry = db.units.flatMap(unit => unit.scouts).find(scout => scout.onlineId === form.savedRegistration.id);
+  assert(paidOf(paidEntry) === 50, 'Paid registration persists payment before printing');
+  const receiptNumber = paidEntry.payment.receiptNo;
+  form.requestSubmit(); await wait(150);
+  assert(paidEntry.payment.receiptNo === receiptNumber && db.units.flatMap(unit => unit.scouts).filter(scout => scout.onlineId === paidEntry.onlineId).length === 1, 'Receipt retry preserves payment and avoids duplicate imports');
+  confirmationOptions.onPrinted();
+  assert(paidEntry.payment.receiptPrintedAt && !form.savedRegistration, 'Receipt print stamps payment and clears form');
+  await wait(200);
+  const beforeLocalCalls = registrationTest.calls().length;
+  online.email = null;
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+  for (const kind of ['scout', 'adult']) {
+    fill(kind); form.elements.localOnly.checked = true; form.elements.paymentStatus.value = 'paid';
+    form.requestSubmit(); await wait(150);
+    const localId = form.savedRegistration.id;
+    const local = [...db.units.flatMap(unit => unit.scouts), ...db.adults].find(record => record.localRegistrationId === localId);
+    assert(local && !local.onlineId && paidOf(local) > 0, 'Offline registration and payment saved locally');
+    assert(previews.at(-1).includes('ACKNOWLEDGMENT RECEIPT'), 'Offline receipt opens without network');
+    form.requestSubmit(); await wait(100);
+    assert([...db.units.flatMap(unit => unit.scouts), ...db.adults].filter(record => record.localRegistrationId === localId).length === 1, 'Offline print retry does not duplicate registration');
+    confirmationOptions.onPrinted();
+  }
+  assert(registrationTest.calls().length === beforeLocalCalls, 'Offline registration and printing make no website requests');
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
+  online.email = 'test@example.invalid';
+  fill('scout'); form.requestSubmit();
+  document.querySelector('.seg [data-view="online"]').click();
+  await wait(130);
+  assert(document.querySelector('.seg [data-view="registration"]'), 'Navigation during submission remains usable');
+  await wait(100);
+  const paid = { id: 'print-test', onlineId: '11111111-1111-4111-8111-111111111111', surname: 'Test', given: 'Learner', payment: { receiptNo: 'AR-TEST', amountPaid: 50 } };
+  const unpaid = { id: 'unpaid-test', onlineId: '22222222-2222-4222-8222-222222222222', payment: {} };
+  db.units.push({ id: 'receipt-tests', scouts: [paid, unpaid] });
+  let printOptions;
+  window.bspPreview.open = (_html, options) => { printOptions = options; };
+  printReceipts([{ receiptNo: 'AR-TEST', date: todayISO(), from: 'Test', items: [{ qty: 1, rate: 50, desc: 'Fee' }], paid: 50 }]);
+  assert(!paid.payment.receiptPrintedAt, 'Opening or cancelling preview must not record printing time');
+  printOptions.onPrinted();
+  const firstPrinted = paid.payment.receiptPrintedAt;
+  assert(!Number.isNaN(Date.parse(firstPrinted)), 'Successful printing records an exact timestamp');
+  printOptions.onPrinted();
+  assert(paid.payment.receiptPrintedAt === firstPrinted, 'Reprinting must preserve first printing time');
+  assert(!unpaid.payment.receiptPrintedAt, 'Unpaid learners must not get a printing timestamp');
+  await wait(200);
+  await syncLearnerReceipts();
+  const updates = registrationTest.calls();
+  assert(updates.some(call => call.ar_no === 'AR-TEST'), 'Sync must upload the AR number');
+  assert(updates.some(call => call.receipt_printed_at === firstPrinted), 'Sync must upload the first printing timestamp');
+  delete paid.payment.receiptPrintedAt;
+  await syncLearnerReceipts();
+  const latest = registrationTest.calls().filter(call => call.ar_no === 'AR-TEST').at(-1);
+  assert(!('receipt_printed_at' in latest), 'Legacy local records must not erase a server printing timestamp');
+  online.rows = [
+    { id: 'group-teacher', reg_type: 'adult', role: 'UL_TROOP', surname: 'PendingTeacher', created_at: '2026-10-01' },
+    { id: 'group-coordinator', reg_type: 'adult', role: 'LAY_ISR', surname: 'PendingCoordinator', created_at: '2026-10-01' },
+  ];
+  online.paymentStatus = 'pending'; online.kind = 'teacher'; go('online');
+  assert(document.querySelector('#main').textContent.includes('PendingTeacher') && !document.querySelector('#main').textContent.includes('PendingCoordinator'), 'Pending teachers must be separate from coordinators');
+  document.querySelector('[data-kind="coordinator"]').click();
+  assert(document.querySelector('#main').textContent.includes('PendingCoordinator') && !document.querySelector('#main').textContent.includes('PendingTeacher'), 'Coordinator group must show only coordinators');
+  paid.grade = 'Grade 2 – Grade 2 Elang'; paid.payment.datePaid = '2026-10-20';
+  document.querySelector('[data-status="paid"]').click();
+  document.querySelector('[data-kind="scout"]').click();
+  assert(document.querySelector('#main').textContent.includes('AR-TEST') && document.querySelector('#main').textContent.includes('Grade 2 – Elang') && document.querySelector('#main').textContent.includes('10/20/2026'), 'Paid learners must show normalized grade and payment date');
+  assert(!document.querySelector('#main').textContent.includes('Grade 2 – Grade 2 Elang'), 'Paid list must remove repeated grade labels');
+  assert(!document.querySelector('[data-act="onlinePay"]'), 'Paid tab must hide pending payment actions');
+  document.querySelector('[data-status="pending"]').click();
+  assert(!document.querySelector('[data-act="reprintScout"]'), 'Pending tab must hide paid records');
+  registrationTest.setRows(Array.from({ length: 80 }, (_, i) => ({
+    id: `scroll-test-${i}`, reg_type: 'scout', surname: `Learner ${i}`, given_name: 'Test',
+    created_at: '2026-10-01T00:00:00Z', birthdate: '2015-01-01',
+  })));
+  go('online');
+  await onlineRefresh();
+  window.scrollTo(0, 700);
+  const beforeRefresh = window.scrollY;
+  assert(beforeRefresh > 0, 'Long registration list must be scrollable');
+  const refresh = onlineRefresh();
+  assert(window.scrollY === beforeRefresh, 'Starting refresh must preserve list position');
+  await refresh;
+  assert(window.scrollY === beforeRefresh, 'Completing refresh must preserve list position');
+  go('summary');
+  assert(window.scrollY === 0, 'Navigating to another page must still start at the top');
+  return 'PASS: registration forms, payments, receipt sync, refresh scroll preservation, and navigation.';
+})()

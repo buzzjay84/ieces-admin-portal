@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('ipc', {
+  bsp: { open: () => ipcRenderer.invoke('bsp:open'), close: () => ipcRenderer.invoke('bsp:close') },
   login: (creds) => ipcRenderer.invoke('auth:login', creds),
   mooe: {
     getAll: () => ipcRenderer.invoke('mooe:getAll'),

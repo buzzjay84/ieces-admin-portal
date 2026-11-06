@@ -5,12 +5,14 @@
 import Topbar from "../components/Topbar";
 import orgChartIcon from "../image/org.png";
 import enrollmentIcon from "../image/enrol.png";
+import bspLogo from "../../electron/bsp/src/assets/bsp-logo.png";
 import "./Dashboard.css";
 
 // Public school website (currently the Vercel-hosted build)
 const SCHOOL_WEBSITE_URL = "https://project-rising-xi.vercel.app/";
 
 const MODULES = [
+  { id: "bsp", iconImg: bspLogo, label: "BSP Registration", desc: "Manage scout and adult registrations, receipts, camping, and website registration access.", badge: "active", badgeText: "Active" },
   {
     id: "enrollment",
     icon: null,
