@@ -54,6 +54,7 @@
   const adult = calls[calls.length - 1];
   assert(adult.reg_type === 'adult' && adult.role === 'LAY_ISR', 'Adult payload');
   assert(previews.length === 0 && !form.savedRegistration, 'Unpaid adult registration must not open print preview');
+  assert(online.paymentStatus === 'pending' && online.kind === 'coordinator', 'Unpaid adult opens the matching Pending payment category');
   assert(!('guardian_name' in adult) && !('grade_section' in adult), 'Adult payload must exclude scout data');
   fill('scout');
   form.elements.paymentStatus.value = 'paid';

@@ -41,3 +41,5 @@ Camp-only printing reserves its receipt number in Supabase before opening previe
 Releases build in `buzzjay84/ieces-admin-portal` (v1.0.9 onward). Older installations configured for `jaybhee84/ieces-admin-portal` need the new BuzzJay installer once to move to that update channel.
 
 Unpaid desktop submissions go directly to Pending payment and do not open a confirmation or receipt print dialog. Their submit button remains usable even while the private payment workspace is reconnecting. A BSP sign-in and successful server submission are still required.
+
+Patch 1.0.10: failed saves no longer display success messages; unpaid adult submissions select the correct Pending payment category. Re-run the workspace migration once to reject null or negative expected revisions; existing data and receipt numbers are preserved.

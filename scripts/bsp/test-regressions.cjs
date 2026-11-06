@@ -105,6 +105,17 @@ vm.runInContext(readFileSync('src/registration.js', 'utf8'), context);
  vm.runInContext(`online.email = 'test@example.invalid'; online.rows = [{ id:'queued-registration', reg_type:'adult', role:'UL_TROOP', surname:'Queued', given_name:'Test' }]; onlineRefreshPending = true;`, context);
  await vm.runInContext(`onlineTake('queued-registration', false)`, context);
  assert.equal(queuedGets, 1, 'Import completion drains queued updates');
+ context.window.bsp.save = () => false;
+ vm.runInContext(`
+ window.failedSaveToasts = []; toast = message => window.failedSaveToasts.push(message);
+ db.adults = [{id:'failed-delete', surname:'Test', first:'Adult'}];
+ actions.delAdult({id:'failed-delete'});
+ assert.equal(window.failedSaveToasts.length, 0, 'A rejected delete must not claim success');
+ db.units = [{id:'failed-pay',scouts:[{id:'learner',surname:'Test',given:'Learner',payment:{}}]}];
+ route = {view:'unit',id:'failed-pay'};
+ actions.payScout({id:'learner'});
+ assert.equal(window.failedSaveToasts.length, 0, 'A rejected payment must not claim success');
+ `, context);
  console.log('PASS: unpaid import visibility, queued live updates, and stale response after sign-out.');
  console.log('PASS: paid registration deletion and rollback on online failure.');
  console.log('PASS: receipt number collisions, legacy counters, failed/invalid backup safety, and valid restore.');

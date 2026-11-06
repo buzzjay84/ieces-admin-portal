@@ -201,6 +201,7 @@ document.addEventListener('submit', async e => {
       form.querySelector('[data-camp-join]').hidden = true;
       form.querySelector('#registrationFee').textContent = '';
       online.paymentStatus = 'pending';
+      online.kind = v.reg_type === 'scout' ? 'scout' : roleOf(v.role)?.group === 'B' ? 'coordinator' : 'teacher';
       if (!localOnly) void onlineRefresh();
       return;
     }

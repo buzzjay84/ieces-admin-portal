@@ -37,6 +37,7 @@ language plpgsql security definer set search_path = '' as $$
 declare previous public.bsp_workspace; rec record; settings jsonb; doc jsonb := p_document;
 begin
   if not public.is_bsp_admin() then raise exception 'BSP administrator access is required' using errcode = '42501'; end if;
+  if p_expected_revision is null or p_expected_revision < 0 then raise exception 'A valid expected workspace revision is required' using errcode = '22023'; end if;
   if jsonb_typeof(doc) is distinct from 'object'
     or jsonb_typeof(doc->'units') is distinct from 'array'
     or jsonb_typeof(doc->'adults') is distinct from 'array'

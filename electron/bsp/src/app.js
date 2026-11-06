@@ -79,7 +79,7 @@ function load() {
   return JSON.parse(JSON.stringify(DEFAULTS));
 }
 function save() {
-  if (!window.bsp.save(JSON.stringify(db))) { alert('Could not save data to disk!'); return false; }
+  if (!window.bsp.save(JSON.stringify(db))) { alert(window.bsp.cloudStart ? 'The save was not confirmed by Supabase. Load the latest shared records before retrying.' : 'Could not save data to disk!'); return false; }
   void syncLearnerReceipts();
   void syncWebsiteFees();
   return true;
@@ -1688,7 +1688,7 @@ const actions = {
   delUnit: d => {
     const u = getUnit(d.id);
     if (!confirm(`Delete ${unitLabel(u)}${u.sponsor ? ` (${u.sponsor})` : ''} and its ${u.scouts.length} scout(s)?`)) return;
-    db.units = db.units.filter(x => x.id !== d.id); save(); render(); toast('Unit deleted');
+    db.units = db.units.filter(x => x.id !== d.id); if (!save()) return; render(); toast('Unit deleted');
   },
   printAUR: d => {
     const u = getUnit(d.id), miss = unitMissing(u);
@@ -1702,24 +1702,24 @@ Print the AUR form anyway?`)) return;
     const s = getUnit(route.id).scouts.find(x => x.id === d.id);
     if (d.camp && !campFee()) return alert('Set the camping fee in Settings first.');
     if (d.camp && !campEligible(s)) return alert('SNED learners are not included in the camp.');
-    markScoutPaid(s, !!d.camp); save(); render(); document.getElementById('roster').scrollIntoView();
+    markScoutPaid(s, !!d.camp); if (!save()) return; render(); document.getElementById('roster').scrollIntoView();
     toast(`${fullName(s)} paid${d.camp ? ' registration + camp' : ''} · Receipt ${s.payment.receiptNo}`);
   },
   unpayScout: d => {
     const s = getUnit(route.id).scouts.find(x => x.id === d.id), shared = campShared(s);
     if (!confirm(`Undo the payment of ${fullName(s)}? (Receipt ${s.payment.receiptNo} will be voided${shared ? ', including the camping fee on it' : ''}.)`)) return;
     if (shared) delete s.camp; // the camp fee on this receipt is reverted too
-    s.payment = { orNo: orNumber(s) }; save(); render(); document.getElementById('roster').scrollIntoView(); toast('Payment undone');
+    s.payment = { orNo: orNumber(s) }; if (!save()) return; render(); document.getElementById('roster').scrollIntoView(); toast('Payment undone');
   },
   campJoin: d => {
     const { s } = findScout(d);
     if (!campEligible(s)) return alert('SNED learners are not included in the camp.');
-    s.camp = { ...(s.camp || {}), joined: true }; save(); rerender(); toast(`${fullName(s)} joined the ${campName()}`);
+    s.camp = { ...(s.camp || {}), joined: true }; if (!save()) return; rerender(); toast(`${fullName(s)} joined the ${campName()}`);
   },
   campLeave: d => {
     const { s } = findScout(d);
     if (!confirm(`Remove ${fullName(s)} from the ${campName()}?`)) return;
-    delete s.camp; save(); rerender(); toast('Removed from camp');
+    delete s.camp; if (!save()) return; rerender(); toast('Removed from camp');
   },
   // records the camp fee on its own receipt and prints a camp-only receipt
   campPay: d => {
@@ -1770,14 +1770,14 @@ Print the AUR form anyway?`)) return;
     const n = Number(receiptNo.slice(db.settings.receiptPrefix.length));
     const reused = !receiptPrintedAt && receiptNo.startsWith(db.settings.receiptPrefix) && n + 1 === Number(db.settings.nextReceipt);
     if (reused) db.settings.nextReceipt = n;
-    save(); rerender(); toast(`Camp payment reverted${reused ? ` · ${receiptNo} will be reused` : ''}`);
+    if (!save()) return; rerender(); toast(`Camp payment reverted${reused ? ` · ${receiptNo} will be reused` : ''}`);
   },
   campReceipt: d => { const { u, s } = findScout(d); printReceipts([learnerReceipt(u, s)]); },
   receiptScout: d => { const u = getUnit(route.id); reprintLearner(u, u.scouts.find(x => x.id === d.id)); },
   payAllScouts: () => {
     const u = getUnit(route.id), unpaid = sortedScouts(u).filter(s => !paidOf(s));
     if (!confirm(`Mark ${unpaid.length} scout(s) as paid today (${peso(unpaid.length * R().scout)})? Each gets its own receipt number.`)) return;
-    unpaid.forEach(s => markScoutPaid(s)); save(); render(); toast(`${unpaid.length} scout(s) marked paid`);
+    unpaid.forEach(s => markScoutPaid(s)); if (!save()) return; render(); toast(`${unpaid.length} scout(s) marked paid`);
   },
   editScout: d => { editingScoutId = d.id; render(); document.getElementById('roster').scrollIntoView(); },
   // jumps here from the Online tab, where the scout's unit isn't the current route yet
@@ -1803,14 +1803,14 @@ Print the AUR form anyway?`)) return;
     if (!confirm(`Remove ${fullName(s)} from the roster?`)) return;
     u.scouts = u.scouts.filter(x => x.id !== d.id);
     if (editingScoutId === d.id) editingScoutId = null;
-    save(); render(); document.getElementById('roster').scrollIntoView(); toast('Scout removed');
+    if (!save()) return; render(); document.getElementById('roster').scrollIntoView(); toast('Scout removed');
   },
   newAdult: () => go('adult'),
   openAdult: d => go('adult', d.id),
   delAdult: d => {
     const a = getAdult(d.id);
     if (!confirm(`Delete ${fullName(a)}?`)) return;
-    db.adults = db.adults.filter(x => x.id !== d.id); save(); render(); toast('Adult deleted');
+    db.adults = db.adults.filter(x => x.id !== d.id); if (!save()) return; render(); toast('Adult deleted');
   },
   printAAR: d => printAAR(getAdult(d.id)),
   receiptAdult: d => receiptForAdult(getAdult(d.id)),
@@ -1916,7 +1916,7 @@ Print the AUR form anyway?`)) return;
   resetAll: () => {
     if (!confirm('Erase ALL units, scouts, adults and payments from this browser? Export a backup first if unsure.')) return;
     if (prompt('Type ERASE to confirm') !== 'ERASE') return;
-    db = JSON.parse(JSON.stringify(DEFAULTS)); save(); render(); toast('All data erased');
+    db = JSON.parse(JSON.stringify(DEFAULTS)); if (!save()) return; render(); toast('All data erased');
   },
 };
 
@@ -1931,7 +1931,7 @@ const forms = {
       dateApplied: v.dateApplied, aurNo: v.aurNo.trim(),
       leaders: { isr: v.l_isr.trim(), ul: v.l_ul.trim(), aulProgram: v.l_aulProgram.trim(), aulAdmin: v.l_aulAdmin.trim() },
     });
-    save();
+    if (!save()) return;
     if (isNew) { route.id = u.id; render(); document.getElementById('roster').scrollIntoView(); toast('Unit saved. Now add the scouts.'); }
     else { render(); toast('Unit details saved'); }
   },
@@ -1957,7 +1957,7 @@ const forms = {
       if (v.paidNow) markScoutPaid(sc, !!(joinCamp && v.campPaidNow && campFee()));
       u.scouts.push(sc); toast(`${fullName(data)} added${joinCamp ? ' + camp' : ''}${v.paidNow ? ` · Receipt ${sc.payment.receiptNo}` : ''}`);
     }
-    editingScoutId = null; save(); render();
+    editingScoutId = null; if (!save()) return; render();
     document.getElementById('roster').scrollIntoView();
     document.querySelector('#scoutForm [name=surname]').focus();
   },
@@ -1967,7 +1967,7 @@ const forms = {
     const orNo = !u.payment?.orNo && submittedOr === unitOrNumber(u) ? '' : submittedOr;
     u.payment = { ...u.payment, datePaid: v.datePaid, orNo };
     u.expiration = v.expiration;
-    save(); render(); toast('Saved');
+    if (!save()) return; render(); toast('Saved');
   },
   adultForm(f) {
     const v = Object.fromEntries(new FormData(f));
@@ -1982,7 +1982,7 @@ const forms = {
       contact: v.contact.trim(), email: v.email.trim(),
     });
     a.payment = { ...a.payment, amountPaid: v.amountPaid === '' ? '' : Number(v.amountPaid), datePaid: v.datePaid, orNo: v.orNo.trim() };
-    issueReceiptIfNeeded(a); save(); render(); toast('Adult saved');
+    issueReceiptIfNeeded(a); if (!save()) return; render(); toast('Adult saved');
   },
   async onlineSignIn(f) {
     const v = Object.fromEntries(new FormData(f));
@@ -1998,7 +1998,7 @@ const forms = {
     const v = Object.fromEntries(new FormData(f));
     Object.assign(db.settings, { supabaseUrl: v.supabaseUrl.trim(), supabaseKey: v.supabaseKey.trim(), defaultSponsor: v.defaultSponsor.trim() });
     if (online.email) startOnlineLive();
-    save(); render(); toast('Saved');
+    if (!save()) return; render(); toast('Saved');
   },
   settingsForm(f) {
     const v = Object.fromEntries(new FormData(f)), s = db.settings;
