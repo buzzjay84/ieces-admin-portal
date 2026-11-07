@@ -22,7 +22,7 @@ language sql immutable set search_path = '' as $$
     union all
     select a.value, a.key from pg_catalog.jsonb_each(coalesce(p_document->'archives', '{}'::jsonb)) a
   )
-  select s.value, u.value, y.sy from years y
+  select s.value, u.value - 'scouts', y.sy from years y
     cross join lateral pg_catalog.jsonb_array_elements(coalesce(y.data->'units', '[]'::jsonb)) u
     cross join lateral pg_catalog.jsonb_array_elements(coalesce(u.value->'scouts', '[]'::jsonb)) s
   union all
@@ -68,18 +68,25 @@ begin
       and r.id not in (select (p.person->>'onlineId')::uuid from public.bsp_workspace_people(doc) p where nullif(p.person->>'onlineId', '') is not null);
   end if;
 
-  for rec in select * from public.bsp_workspace_people(doc) loop
+  -- Expand the old snapshot once; do not reparse every unit's roster for each person.
+  for rec in
+    with old_people as materialized (
+      select * from public.bsp_workspace_people(previous.document)
+    )
+    select p.*, exists (
+      select 1 from old_people old
+      where old.person = p.person
+        and old.unit is not distinct from p.unit
+        and old.school_year is not distinct from p.school_year
+    ) as unchanged
+    from public.bsp_workspace_people(doc) p
+  loop
     if jsonb_typeof(rec.person) <> 'object' or nullif(rec.person->>'id', '') is null then raise exception 'Invalid BSP person'; end if;
     if coalesce(nullif(rec.person->'payment'->>'amountPaid', ''), '0')::numeric < 0
       or coalesce(nullif(rec.person->'camp'->>'amountPaid', ''), '0')::numeric < 0 then raise exception 'Payment amounts must not be negative'; end if;
     if nullif(rec.person->>'onlineId', '') is null then continue; end if;
     -- Avoid emitting website change notifications for every unchanged learner on each save.
-    if previous.id is not null and exists (
-      select 1 from public.bsp_workspace_people(previous.document) old
-      where old.person = rec.person
-        and (old.unit - 'scouts') is not distinct from (rec.unit - 'scouts')
-        and old.school_year is not distinct from rec.school_year
-    ) then continue; end if;
+    if previous.id is not null and rec.unchanged then continue; end if;
     update public.bsp_registrations r set
       surname = rec.person->>'surname',
       given_name = coalesce(rec.person->>'given', rec.person->>'first'),

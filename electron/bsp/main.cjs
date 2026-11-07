@@ -62,8 +62,12 @@ ipcMain.on('store:load', e => {
   catch (err) { console.error(err); e.returnValue = null; }
 });
 ipcMain.on('store:save', async (e, text) => {
-  try { e.returnValue = await cloud.save(text); }
-  catch (err) { cloudNotify({ status: 'error', message: err.message }); e.returnValue = false; }
+  lastSaveError = '';
+  try {
+    const ok = await cloud.save(text);
+    e.returnValue = { ok, error: ok ? '' : lastSaveError };
+  }
+  catch (err) { cloudNotify({ status: 'error', message: err.message }); e.returnValue = { ok: false, error: err.message }; }
 });
 
 ipcMain.handle('store:path', () => DATA_FILE);
@@ -172,8 +176,11 @@ async function sbRest(cfg, method = 'GET', query, body) {
 }
 
 ipcMain.handle('sb:rest', (_e, { cfg, method, query, body }) => sbRest(cfg, method, query, body));
-let cloudSender;
-function cloudNotify(update) { if (cloudSender && !cloudSender.isDestroyed()) cloudSender.send('cloud:changed', update); }
+let cloudSender, lastSaveError = '';
+function cloudNotify(update) {
+  if (update.status === 'error') lastSaveError = update.message;
+  if (cloudSender && !cloudSender.isDestroyed()) cloudSender.send('cloud:changed', update);
+}
 const cloud = require('./cloud-workspace.cjs').createCloudWorkspace({ file: DATA_FILE, request: sbRest, notify: cloudNotify });
 ipcMain.handle('cloud:start', (e, cfg) => { cloudSender = e.sender; return cloud.start(cfg); });
 ipcMain.handle('cloud:initialize', (_e, text) => cloud.initialize(text));

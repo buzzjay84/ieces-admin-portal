@@ -46,6 +46,9 @@ app.whenReady().then(async () => {
     const preview = await js("window.bsp.printPreview({html: '<div class=pg><h1>BSP Test</h1></div>', paper: 'A4'})");
     assert.equal(preview.ok, true, preview.reason);
     assert.ok(Buffer.from(preview.base64, 'base64').subarray(0, 4).toString() === '%PDF');
+    await js('window.bsp.sbSignOut()');
+    assert.equal(await js('window.bsp.save(JSON.stringify(db))'), false);
+    assert.match(await js('window.bsp.saveError()'), /Load the shared Supabase records/);
     const closed = new Promise(resolve => win.once('closed', resolve));
     bsp.close();
     await closed;

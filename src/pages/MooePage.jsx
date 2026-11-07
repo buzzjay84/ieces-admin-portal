@@ -409,9 +409,8 @@ export default function MooePage({ onBack, onLogout, user }) {
 
     const cy = deriveCYFromDate(dateLiquidated || dateReceived);
 
-    // Upload new receipts & delete removed ones
+    // Keep saved receipt files until the database confirms the change.
     const newUploaded = await uploadReceipts(cy, month);
-    await deleteRemovedReceipts();
 
     const allReceipts = [...existingReceipts, ...newUploaded];
 
@@ -449,18 +448,13 @@ export default function MooePage({ onBack, onLogout, user }) {
       return;
     }
 
+    await deleteRemovedReceipts();
     await loadRecords();
     showToast("✅ MOOE entry saved to Supabase!");
     setView("list");
   };
 
   const handleDelete = async (entry) => {
-    // Delete associated receipts from storage
-    const paths = (entry.receipts || []).map((r) => r.path).filter(Boolean);
-    if (paths.length) {
-      await supabase.storage.from(SUPABASE_BUCKET).remove(paths);
-    }
-
     const { error } = await supabase
       .from(MOOE_TABLE)
       .delete()
@@ -470,6 +464,12 @@ export default function MooePage({ onBack, onLogout, user }) {
       console.error("Supabase delete error:", error);
       showToast("❌ Failed to delete record.");
       return;
+    }
+
+    // Delete associated receipts from storage
+    const paths = (entry.receipts || []).map((r) => r.path).filter(Boolean);
+    if (paths.length) {
+      await supabase.storage.from(SUPABASE_BUCKET).remove(paths);
     }
 
     await loadRecords();
@@ -507,7 +507,7 @@ export default function MooePage({ onBack, onLogout, user }) {
   // ── LIST VIEW ──
   if (view === "list")
     return (
-      <div className="mooe-root">
+      <div className="mooe-root mooe-list-page">
         <Topbar
           user={user}
           onLogout={onLogout}
@@ -517,7 +517,8 @@ export default function MooePage({ onBack, onLogout, user }) {
         <div className="mooe-body">
           <div className="mooe-list-header">
             <div>
-              <div className="mlh-title">MOOE Liquidation Records</div>
+              <p className="mooe-eyebrow">FINANCE &amp; ACCOUNTABILITY</p>
+              <h1 className="mlh-title">MOOE Liquidation Records</h1>
               <div className="mlh-sub">
                 Monthly budget utilization and liquidation entries
               </div>
@@ -527,6 +528,7 @@ export default function MooePage({ onBack, onLogout, user }) {
                 value={filterCY}
                 onChange={(e) => setFilterCY(e.target.value)}
                 className="filter-sy"
+                aria-label="Filter by calendar year"
               >
                 <option value="">All Calendar Years</option>
                 {cyFilterOptions.map((c) => (
@@ -564,6 +566,7 @@ export default function MooePage({ onBack, onLogout, user }) {
             <div className="records-list-wrapper">
               {filteredRecords.map((r, i) => (
                 <div key={r.id || i} className="record-card">
+                  <div className="record-heading"><div><span className="record-year">{r.cy}</span><h2>{r.month} liquidation</h2></div><span className="record-caption">Monthly expense breakdown</span></div>
                   {/* SUMMARY TOP BAR */}
                   <div className="records-table-wrap header-table-wrap">
                     <table className="records-table header-summary-table">
@@ -603,6 +606,7 @@ export default function MooePage({ onBack, onLogout, user }) {
                             </button>
                             <button
                               className="btn-del"
+                              aria-label={`Delete ${r.month} ${r.cy} entry`}
                               onClick={() => setDeleteConfirm(r)}
                             >
                               🗑

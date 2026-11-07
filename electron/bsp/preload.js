@@ -1,4 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron');
+let saveError = '';
 
 contextBridge.exposeInMainWorld('bsp', {
   cloudStart: cfg => ipcRenderer.invoke('cloud:start', cfg),
@@ -10,7 +11,12 @@ contextBridge.exposeInMainWorld('bsp', {
   },
   appVersion: () => ipcRenderer.sendSync('app:version'),
   load: () => ipcRenderer.sendSync('store:load'),
-  save: text => ipcRenderer.sendSync('store:save', text),
+  save: text => {
+    const result = ipcRenderer.sendSync('store:save', text);
+    saveError = result.error || '';
+    return result.ok === true;
+  },
+  saveError: () => saveError,
   dataPath: () => ipcRenderer.invoke('store:path'),
   saveFile: (name, text, filters, encoding) => ipcRenderer.invoke('file:save', { name, text, filters, encoding }),
   openFile: filters => ipcRenderer.invoke('file:open', { filters }),

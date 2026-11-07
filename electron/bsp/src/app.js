@@ -1104,7 +1104,7 @@ async function onlineTake(id, paid) {
   if (res.scout) applyCampChoice(rec, campChoice(id), justPaid);
   if (!window.bsp.save(JSON.stringify(db))) {
     db = JSON.parse(snapshot);
-    alert('Could not save registration to disk. No registration was imported. Please retry.');
+    alert(window.bsp.saveError?.() || 'Could not save the payment. No receipt was opened. Load the latest shared records and retry.');
     return;
   }
   let synced = false;

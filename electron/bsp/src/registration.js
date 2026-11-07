@@ -41,7 +41,7 @@ async function printPaidRegistration(entry, options, camp = {}) {
       issueReceiptIfNeeded(rec);
     }
     if (imported.scout) applyCampChoice(rec, !!camp.join, justPaid && !!camp.pay);
-    if (!window.bsp.save(JSON.stringify(db))) throw new Error('Could not save payment to disk. Retry printing to try again.');
+    if (!window.bsp.save(JSON.stringify(db))) throw new Error(window.bsp.saveError?.() || 'Could not save the payment. Load the latest shared records and retry.');
   } catch (err) { db = JSON.parse(snapshot); throw err; }
   try {
     if (!entry.localOnly && !await setOnlineStatus(entry, 'imported')) toast('Payment saved locally; website sync pending.');

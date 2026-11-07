@@ -769,3 +769,39 @@ input[type=number] {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
   z-index: 10;
 }
+/* Record list: a clear financial summary above each expense ledger. */
+.mooe-list-page { background: #f6f3ee; }
+.mooe-list-page .mooe-body { padding: 32px max(20px, calc((100% - 1440px) / 2)); }
+.mooe-list-page .mooe-list-header { align-items: center; padding: 28px; background: linear-gradient(115deg, #591520, #873329); border-bottom: 4px solid #e8b74a; border-radius: 16px; margin-bottom: 28px; }
+.mooe-eyebrow { margin: 0 0 8px; color: #f5ce7c; font-size: .65rem; font-weight: 700; letter-spacing: .14em; }
+.mooe-list-page .mlh-title { color: white; font-size: clamp(1.3rem, 2vw, 1.8rem); line-height: 1.3; margin: 0; }
+.mooe-list-page .mlh-sub { color: #f4dedc; font-size: .85rem; margin-top: 8px; }
+.mooe-list-page .mlh-actions { flex-wrap: wrap; }
+.mooe-list-page .mlh-actions .btn-primary { background: #ffe5a0; color: #54231d; border: 1px solid #ffe5a0; }
+.mooe-list-page .filter-sy { min-height: 40px; max-width: 100%; }
+.mooe-list-page .records-list-wrapper { display: grid; gap: 28px; }
+.mooe-list-page .record-card { min-width: 0; border-radius: 14px; background: white; border: 1px solid #e3dbd1; box-shadow: 0 3px 6px #412a2408, 0 10px 26px #412a2408; overflow: hidden; }
+.record-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px 24px; background: linear-gradient(110deg, #641b26, #8b3431); border-bottom: 3px solid #e8b74a; }
+.record-year { display: inline-block; padding: 4px 8px; border-radius: 5px; background: #ffe5a0; color: #633c08; font-size: .65rem; font-weight: 700; }
+.record-heading h2 { margin: 7px 0 0; font-size: 1.15rem; color: #fff; }
+.record-caption { color: #f4dedc; font-size: .75rem; }
+.mooe-list-page .records-table-wrap { border-radius: 0; box-shadow: none; }
+.mooe-list-page .header-table-wrap { background: #faf7f2; padding: 8px 10px; }
+.mooe-list-page .header-summary-table th { background: #faf7f2; color: #74645b; font-size: .62rem; padding: 12px 14px 6px; }
+.mooe-list-page .header-summary-table td { border: 0; padding: 6px 14px 14px; }
+.mooe-list-page .header-summary-table .td-money { font-size: 1rem; white-space: nowrap; }
+.mooe-list-page .header-summary-table .expense { color: #814515; }
+.mooe-list-page .items-breakdown-table th { background: #eee8df; color: #59463e; border-top: 1px solid #e4dbcf; font-size: .65rem; }
+.mooe-list-page .items-breakdown-table td { padding: 13px 24px; border-color: #eee9e2; }
+.mooe-list-page .items-breakdown-table th { padding: 12px 24px; }
+.mooe-list-page .items-breakdown-table tbody tr:nth-child(even) { background: #fcfaf7; }
+.mooe-list-page .items-breakdown-table .td-money, .mooe-list-page .items-breakdown-table th:nth-child(2) { text-align: right; white-space: nowrap; }
+.mooe-list-page .code-text { display: inline-block; font-size: .75rem; color: #756961; font-variant-numeric: tabular-nums; }
+.mooe-list-page :is(button, select):focus-visible { outline: 3px solid #b77713; outline-offset: 3px; }
+.mooe-list-page .btn-edit, .mooe-list-page .btn-del { min-height: 34px; }
+@media (max-width: 600px) {
+  .mooe-list-page .mooe-body { padding: 20px 14px; }
+  .mooe-list-page .mooe-list-header { padding: 22px; }
+  .record-heading { padding: 18px; flex-wrap: wrap; }
+  .record-caption { display: none; }
+}
