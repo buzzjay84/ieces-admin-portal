@@ -106,6 +106,23 @@ jobs:
         if: steps.check_release.outputs.exists == 'false'
         run: npm run test:ui
 
+      - name: Test encryption and registration security
+        if: steps.check_release.outputs.exists == 'false'
+        run: npm run test:security
+
+      - name: Test database authorization and workspace migration
+        if: steps.check_release.outputs.exists == 'false'
+        shell: pwsh
+        run: |
+          $testToolsDir = Join-Path $env:RUNNER_TEMP 'ieces-sql-test'
+          npm install --prefix $testToolsDir --ignore-scripts --no-audit --no-fund @electric-sql/pglite@0.5.15
+          if ($LASTEXITCODE -ne 0) { throw 'Could not install SQL test tools.' }
+          $env:PGLITE_MODULE = Join-Path $testToolsDir 'node_modules/@electric-sql/pglite'
+          node scripts/bsp/test-workspace-sql.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'BSP workspace SQL tests failed.' }
+          node scripts/bsp/test-portal-access-sql.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Portal authorization SQL tests failed.' }
+
       # electron-builder uploads the installer and blockmap in parallel, and each upload
       # creates its own release when none exists yet, which splits the assets across two
       # releases with the same tag. Creating the draft first gives both uploads one target.
@@ -116,7 +133,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $name = $env:VERSION.TrimStart("v")
-          $json = gh api "repos/${{ github.repository }}/releases" -f "tag_name=$env:VERSION" -f "name=$name" -F "draft=true"
+          $json = gh api "repos/${{ github.repository }}/releases" -f "tag_name=$env:VERSION" -f "name=$name" -F "draft=true" -F "body=@RELEASE_NOTES.md"
           if ($LASTEXITCODE -ne 0) { throw "Could not create draft release $env:VERSION." }
           $id = ($json | ConvertFrom-Json).id
           [System.IO.File]::AppendAllText($env:GITHUB_ENV, "RELEASE_ID=$id`n")
@@ -133,7 +150,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload $env:VERSION supabase-bsp-workspace.sql supabase-bsp-registration-control.sql --repo ${{ github.repository }} --clobber
+          gh release upload $env:VERSION supabase-bsp-workspace.sql supabase-bsp-registration-control.sql supabase-private-mooe-receipts.sql supabase-portal-access-hardening.sql SECURITY.md AUDIT.md LICENSE --repo ${{ github.repository }} --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Could not attach Supabase migrations.' }
 
       - name: Verify Assets and Publish Release

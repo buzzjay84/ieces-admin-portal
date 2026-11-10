@@ -17,7 +17,7 @@ const clients = [];
 function client(name) {
   const events = [], file = path.join(folder, name + '.json');
   fs.writeFileSync(file, JSON.stringify(initial));
-  const store = createCloudWorkspace({ file, request, notify: event => events.push(event) });
+  const store = createCloudWorkspace({ file, request, notify: event => events.push(event), storage: { read: file => fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null, write: (file, text) => fs.writeFileSync(file, text) } });
   clients.push(store);
   return { store, events, file };
 }

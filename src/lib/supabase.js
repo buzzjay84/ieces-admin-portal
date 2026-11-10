@@ -5,7 +5,12 @@ import { createClient } from '@supabase/supabase-js'
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://joilvslvsioayrjshuxg.supabase.co'
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_aozkBamT5C58KY03X9kUgA_iehy73ZU'
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+// This portal asks for sign-in on every launch; keep tokens in memory only.
+const legacyTokenKey = `sb-${new URL(SUPABASE_URL).hostname.split('.')[0]}-auth-token`
+for (const suffix of ['', '-code-verifier', '-user']) localStorage.removeItem(legacyTokenKey + suffix)
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: false, detectSessionInUrl: false },
+})
 
 // ── Storage bucket name (create this in Supabase → Storage) ─────────────────
 export const BUCKET = 'news-photos'

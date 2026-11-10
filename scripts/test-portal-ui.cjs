@@ -31,11 +31,19 @@ async function main() {
             const originalFetch = window.fetch;
             window.fetch = (url, options) => decodeURIComponent(String(url)).includes('/rest/v1/MOOE liquidation report')
               ? (options?.method === 'DELETE' ? Promise.resolve(new Response(JSON.stringify({message: 'Simulated database failure'}), {status: 500})) : Promise.resolve(new Response(JSON.stringify([{id: 'sample', cy: 'CY 2026', month: 'January', allocation: 10000, total: 7500, balance: 2500, liquidated_by: 'School Administrator', date_liquidated: '2026-02-04', items: [{objectCode: '5020401000', amount: 7500}], receipts: [{url:'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',path:'saved-receipt.png'}]}]), {headers: {'Content-Type': 'application/json'}})))
+              : options?.method === 'POST' && String(url).includes('/storage/v1/object/sign/') ? Promise.resolve(new Response(JSON.stringify({signedURL: '/object/sign/mooe-receipts/saved-receipt.png?token=test-only'}), {headers: {'Content-Type': 'application/json'}}))
+              : String(url).includes('/storage/v1/object/sign/mooe-receipts/saved-receipt.png?') ? Promise.resolve(new Response(''))
               : String(url).includes('/storage/v1/') ? (window.storageDeleted = true, Promise.resolve(new Response('{}'))) : String(url).includes('api.open-meteo.com')
               ? (window.weatherOffline ? Promise.reject(new Error('Offline')) : Promise.resolve(new Response(JSON.stringify({
                   current: { weather_code: 95, temperature_2m: 32.2, relative_humidity_2m: 70, time: '2026-11-07T13:00' },
                   hourly: { time: ['2026-11-07T08:00','2026-11-07T12:00','2026-11-07T15:00'], weather_code: [0,3,95], temperature_2m: [28,32,30] }
                 })))) : originalFetch(url, options);
+            const apiFetch = window.fetch;
+            window.fetch = (url, options) => {
+              if (options?.method === 'POST' && decodeURIComponent(String(url)).includes('/rest/v1/MOOE liquidation report')) window.mooeWriteAttempted = true;
+              if (window.failReceiptUpload && options?.method === 'POST' && String(url).includes('/storage/v1/object/mooe-receipts/')) return Promise.resolve(new Response(JSON.stringify({message: 'Simulated upload failure'}), {status: 500}));
+              return apiFetch(url, options);
+            };
             let renderKey = 0;
             window.renderCheck = (page) => root.render(React.createElement(page === 'login' ? Login : page === 'mooe' ? Mooe : Dashboard, {
               key: ++renderKey, user: { name: 'School Administrator' }, onNavigate: id => window.lastNavigation = id,
@@ -133,6 +141,21 @@ async function main() {
     await run('document.querySelector(".confirm-box .btn-danger").click()'); await settle();
     assert.equal(await run('!!window.storageDeleted'), false, 'Failed database delete must preserve saved receipt images');
     assert.equal(await run('!!document.querySelector(".record-heading")'), true);
+    await run('document.querySelector(".modal-overlay").click()'); await settle();
+    await run('document.querySelector(".btn-edit").click()'); await settle();
+    assert.equal(await run(`(() => { const codes = [...document.querySelector('.exp-table select').options].map(option => option.value); return new Set(codes).size === codes.length && codes.includes('5020321002') && codes.includes('5020322001'); })()`), true, 'Account options must be unique and use distinct equipment/furniture codes');
+    await run(`window.failReceiptUpload = true;
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([Uint8Array.from(atob('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'), c => c.charCodeAt(0))], 'receipt.gif', {type:'image/gif'}));
+      const input = document.querySelector('input[type=file]'); input.files = transfer.files; input.dispatchEvent(new Event('change', {bubbles:true}));`);
+    await settle();
+    await run('document.querySelector(".form-footer .btn-primary").click()');
+    for (let i = 0; i < 50 && !await run('!!document.querySelector(".form-error")'); i++) await settle();
+    assert.match(await run('document.querySelector(".form-error").textContent'), /Failed to upload/);
+    assert.equal(await run('!!window.mooeWriteAttempted'), false, 'Failed uploads must not save incomplete entries');
+    assert.equal(await run('document.querySelector(".form-footer .btn-primary").disabled'), false);
+    assert.equal(await run('document.querySelectorAll(".receipt-item:not(.receipt-item-new)").length'), 1, 'Upload failure keeps existing receipts');
+    await run('document.querySelector(".form-footer .btn-cancel").click()'); await settle();
     // The simulated database failure is expected to be logged by the page.
     errors.splice(0, errors.length, ...errors.filter(message => !message.includes('Supabase delete error') && !message.includes('500 (Internal Server Error)')));
     await run('document.querySelector(".tb-back").click()');

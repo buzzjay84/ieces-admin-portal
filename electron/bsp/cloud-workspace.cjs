@@ -1,22 +1,20 @@
-const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 
 // shortcut: one school snapshot up to 5 MB, normalize records when the dataset outgrows this limit.
-function createCloudWorkspace({ file, request, notify }) {
+function createCloudWorkspace({ file, request, notify, storage }) {
   let cfg, revision = null, ready = false, stopped = true, timer, generation = 0, failed = false;
   let queue = Promise.resolve();
   const serial = task => { const result = queue.then(task); queue = result.catch(() => {}); return result; };
   const emit = (status, message, settings) => notify({ status, message, revision, settings });
   function backup(text) {
     const name = path.join(path.dirname(file), `bsp-recovery-${Date.now()}-${randomUUID()}.json`);
-    fs.writeFileSync(name, text, { flag: 'wx' });
+    storage.write(name, text);
     return name;
   }
   function cache(document) {
     const text = JSON.stringify(document);
-    const temp = file + '.tmp';
-    fs.writeFileSync(temp, text, 'utf8'); fs.renameSync(temp, file);
+    storage.write(file, text);
   }
   async function fetchLatest(version, initial = false) {
     const result = await request(cfg, 'GET', 'bsp_workspace?id=eq.true&select=revision,document');
@@ -25,7 +23,7 @@ function createCloudWorkspace({ file, request, notify }) {
     const row = result.data?.[0];
     if (!row) { ready = false; revision = null; emit('uninitialized', 'Upload the existing BSP records once to initialize Supabase.'); return; }
     if (row.revision !== revision || initial || (!ready && failed)) {
-      const previous = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+      const previous = storage.read(file);
       if (initial && previous && previous !== JSON.stringify(row.document)) backup(previous);
       cache(row.document); revision = row.revision; ready = false; failed = false;
       emit('changed', 'Supabase has the latest records. Load them before editing.');
@@ -35,7 +33,7 @@ function createCloudWorkspace({ file, request, notify }) {
   return {
     stop,
     read() {
-      const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+      const text = storage.read(file);
       if (!stopped && !failed && revision !== null && !ready) { ready = true; emit('ready', 'Saved in Supabase.'); }
       return text;
     },

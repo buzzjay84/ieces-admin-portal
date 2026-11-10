@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('bsp', {
   dataPath: () => ipcRenderer.invoke('store:path'),
   saveFile: (name, text, filters, encoding) => ipcRenderer.invoke('file:save', { name, text, filters, encoding }),
   openFile: filters => ipcRenderer.invoke('file:open', { filters }),
+  encryptBackup: (text, password) => ipcRenderer.invoke('backup:encrypt', { text, password }),
+  decryptBackup: (text, password) => ipcRenderer.invoke('backup:decrypt', { text, password }),
   print: settings => ipcRenderer.invoke('print', settings),
   printPrinters: () => ipcRenderer.invoke('print:printers'),
   printPreview: settings => ipcRenderer.invoke('print:preview', settings),

@@ -2,7 +2,7 @@
 const path = require('node:path');
 module.exports = function cloudFixture(folder) {
   fs.mkdirSync(folder, { recursive: true });
-  fs.writeFileSync(path.join(folder, 'supabase-session.json'), JSON.stringify({ access_token: 'test-only', email: 'test@example.invalid', expires_at: Date.now() / 1000 + 3600 }));
+  fs.writeFileSync(path.join(folder, 'supabase-session.json'), JSON.stringify({ access_token: 'test-only', email: 'test@example.invalid', expires_at: Date.now() / 1000 + 3600, url: 'https://joilvslvsioayrjshuxg.supabase.co' }));
   let row = { revision: 1, document: { units: [], adults: [], settings: { nextReceipt: 1, schoolYear: '2026', rates: { scout: 50, teacher: 60, lay: 100, camp: 0 } }, archives: {}, campIntents: {} } };
   global.fetch = async (url, options = {}) => {
     let data = [];

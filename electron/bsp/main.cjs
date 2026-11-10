@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const storage = require('../secure-store.cjs').createSecureStore(require('electron').safeStorage);
+const backupCrypto = require('../backup-crypto.cjs');
 const { execFile } = require('child_process');
 
 // Electron's getPrintersAsync() reports isDefault based on printer enumeration order on
@@ -23,13 +25,23 @@ function getSystemDefaultPrinterName() {
 const DATA_FILE = path.join(app.getPath('userData'), 'bsp-data.json');
 let workspace;
 
+function migrateLocalStorage() {
+  storage.read(DATA_FILE);
+  if (fs.existsSync(SESSION_FILE)) session = JSON.parse(storage.read(SESSION_FILE));
+  for (const name of fs.readdirSync(app.getPath('userData'))) {
+    if (/^bsp-recovery-.*\.json$/.test(name)) storage.read(path.join(app.getPath('userData'), name));
+  }
+}
+
 async function open(parent) {
   if (workspace && !workspace.isDestroyed()) {
     if (workspace.isMinimized()) workspace.restore();
     workspace.show(); workspace.focus(); return;
   }
+  await app.whenReady();
+  migrateLocalStorage();
   require('./inherit-records.cjs').inheritStandaloneRecords(
-    path.join(app.getPath('appData'), 'BSP Registration', 'bsp-data.json'), DATA_FILE);
+    path.join(app.getPath('appData'), 'BSP Registration', 'bsp-data.json'), DATA_FILE, storage);
   const win = new BrowserWindow({
     parent,
     width: 1280,
@@ -89,7 +101,8 @@ ipcMain.handle('file:open', async (e, { filters }) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   const { canceled, filePaths } = await dialog.showOpenDialog(win, { properties: ['openFile'], filters });
   if (canceled || !filePaths[0]) return null;
-  return fs.readFileSync(filePaths[0], 'utf8');
+  const text = fs.readFileSync(filePaths[0], 'utf8');
+  return text.startsWith('IECES-ENC-v1\n') ? storage.read(filePaths[0]) : text;
 });
 
 /* ---- Supabase (online registrations from the school website) ----
@@ -98,30 +111,32 @@ ipcMain.handle('file:open', async (e, { filters }) => {
 const SESSION_FILE = path.join(app.getPath('userData'), 'supabase-session.json');
 let session = null;
 let authGeneration = 0, tokenRefresh;
-try { session = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8')); } catch { session = null; }
 
 function storeSession(s) {
-  session = s;
-  if (s) fs.writeFileSync(SESSION_FILE, JSON.stringify(s), 'utf8');
+  if (s) storage.write(SESSION_FILE, JSON.stringify(s));
   else fs.rmSync(SESSION_FILE, { force: true });
+  session = s;
 }
 
 async function authRequest(cfg, grant, body) {
+  validateConfig(cfg);
   const generation = authGeneration;
   const res = await fetch(`${cfg.url}/auth/v1/token?grant_type=${grant}`, {
-    method: 'POST', signal: AbortSignal.timeout(15000),
+    method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15000),
     headers: { apikey: cfg.key, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error_description || data.msg || data.message || `Sign-in failed (${res.status})`);
   if (generation !== authGeneration) throw new Error('Sign-in changed while authenticating.');
-  storeSession({ access_token: data.access_token, refresh_token: data.refresh_token, expires_at: data.expires_at, email: data.user?.email });
+  storeSession({ access_token: data.access_token, refresh_token: data.refresh_token, expires_at: data.expires_at, email: data.user?.email, url: cfg.url });
   return session;
 }
 
 async function freshToken(cfg, force = false) {
+  validateConfig(cfg);
   if (!session) throw new Error('Not signed in');
+  if (session.url && session.url !== cfg.url) throw Error('The Supabase project changed. Sign in to that project before connecting.');
   const generation = authGeneration;
   if (force || !session.expires_at || session.expires_at - 60 < Date.now() / 1000) {
     try {
@@ -134,7 +149,14 @@ async function freshToken(cfg, force = false) {
 }
 
 let stopRegistrationLive;
+function validateConfig(cfg) {
+  const url = new URL(cfg.url);
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/' || typeof cfg.key !== 'string' || !cfg.key.trim()) {
+    throw Error('Use an HTTPS Supabase project URL and a publishable key.');
+  }
+}
 ipcMain.handle('sb:watch', (e, cfg) => {
+  validateConfig(cfg);
   stopRegistrationLive?.();
   const stop = require('./registration-live').watchRegistrations(cfg, () => freshToken(cfg), update => {
     if (!e.sender.isDestroyed()) e.sender.send('sb:changed', update);
@@ -156,7 +178,7 @@ async function sbRest(cfg, method = 'GET', query, body) {
     for (let attempt = 0; attempt < 2; attempt++) {
       const token = await freshToken(cfg, attempt > 0);
       const res = await fetch(`${cfg.url}/rest/v1/${query}`, {
-        method, signal: AbortSignal.timeout(15000),
+        method, redirect: 'error', signal: AbortSignal.timeout(15000),
         headers: {
           apikey: cfg.key,
           Authorization: `Bearer ${token}`,
@@ -181,7 +203,9 @@ function cloudNotify(update) {
   if (update.status === 'error') lastSaveError = update.message;
   if (cloudSender && !cloudSender.isDestroyed()) cloudSender.send('cloud:changed', update);
 }
-const cloud = require('./cloud-workspace.cjs').createCloudWorkspace({ file: DATA_FILE, request: sbRest, notify: cloudNotify });
+const cloud = require('./cloud-workspace.cjs').createCloudWorkspace({ file: DATA_FILE, request: sbRest, notify: cloudNotify, storage });
+ipcMain.handle('backup:encrypt', (_e, { text, password }) => backupCrypto.encryptBackup(text, password));
+ipcMain.handle('backup:decrypt', (_e, { text, password }) => backupCrypto.decryptBackup(text, password));
 ipcMain.handle('cloud:start', (e, cfg) => { cloudSender = e.sender; return cloud.start(cfg); });
 ipcMain.handle('cloud:initialize', (_e, text) => cloud.initialize(text));
 
@@ -256,4 +280,4 @@ ipcMain.handle('print', (e, settings = {}) => printJob(e, settings, async (wc, p
   }, (ok, reason) => resolve({ ok, reason })));
 }));
 
-module.exports = { open, close: () => { workspace?.close(); } };
+module.exports = { open, migrateLocalStorage, close: () => { workspace?.close(); } };

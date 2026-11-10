@@ -157,9 +157,6 @@ function register(getWindow){
    if(pageRules.length)pageStyleKey=await contents.insertCSS(`@media print { @page { ${pageRules.join('; ')}; } }`);
    const buffer=await printToPdfWithRetry(contents,{...options,pageSize:electronPdfPageSize(options.pageSize)});
    if(!Buffer.isBuffer(buffer)||buffer.length<4||buffer.subarray(0,4).toString('ascii')!=='%PDF')throw new Error('Print preview generation returned invalid PDF data.');
-   fs.mkdirSync(PRINT_PREVIEW_DIR,{recursive:true});
-   for(const file of fs.readdirSync(PRINT_PREVIEW_DIR))fs.rmSync(path.join(PRINT_PREVIEW_DIR,file),{force:true});
-   fs.writeFileSync(path.join(PRINT_PREVIEW_DIR,`preview-${Date.now()}.pdf`),buffer);
    return {success:true,base64:buffer.toString('base64')};
   }catch(error){
    console.error('Print preview generation failed:',error);

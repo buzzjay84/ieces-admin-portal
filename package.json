@@ -1,6 +1,6 @@
 {
   "name": "ieces-admin-portal",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "IECES Admin Portal",
   "author": "BuzzJay",
   "repository": {
@@ -22,17 +22,16 @@
     "electron": "electron .",
     "postinstall": "electron-builder install-app-deps",
     "dist": "npm run build && electron-builder",
-    "release": "npm run build && electron-builder --publish always"
+    "release": "npm run build && electron-builder --publish always",
+    "test:security": "node scripts/test-security.cjs && node scripts/test-registration-security.cjs"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
     "@vitejs/plugin-react": "^6.1.1",
-    "concurrently": "^10.0.5",
-    "electron": "^44.5.1",
-    "electron-builder": "^26.15.3",
-    "vite": "^8.3.2",
-    "vite-plugin-electron": "^1.1.2",
-    "wait-on": "^9.5.1"
+    "electron": "^44.10.2",
+    "electron-builder": "^26.18.1",
+    "vite": "^8.3.7",
+    "vite-plugin-electron": "^1.1.2"
   },
   "dependencies": {
     "@fontsource/cinzel": "^5.3.0",
@@ -63,6 +62,8 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md",
       "public/prieces.ico",
       "public/prieces.icns"
     ],
@@ -87,5 +88,6 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     }
-  }
+  },
+  "license": "MIT"
 }

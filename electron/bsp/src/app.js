@@ -1183,7 +1183,7 @@ function viewSettings() {
     <h2>Backup &amp; restore</h2>
     <p class="muted">Records are saved automatically on this computer<span id="dataPath"></span>. Export a backup regularly, and import it to move the data to another computer.</p>
     <div class="actions">
-      <button class="btn primary" data-act="exportJSON">Export backup (.json)</button>
+      <button class="btn primary" data-act="exportJSON">Export encrypted backup (.json)</button>
       <button class="btn" data-act="importJSON">Import backup…</button>
       <button class="btn danger" data-act="resetAll">Erase all data</button>
     </div>
@@ -1600,9 +1600,34 @@ function printSummary() {
 /* ------------------------------------------------------------------- CSV */
 
 async function download(name, text, type = 'text/csv') {
+  if (type === 'text/csv' && !confirm('This CSV contains readable records. Save it only to a protected location. Continue?')) return;
   const filters = type === 'text/csv' ? [{ name: 'CSV (Excel)', extensions: ['csv'] }] : [{ name: 'Backup', extensions: ['json'] }];
   const saved = await window.bsp.saveFile(name, type === 'text/csv' ? '﻿' + text : text, filters);
   if (saved) toast('Saved to ' + saved);
+}
+function backupPassword(creating = false) {
+  return new Promise(resolve => {
+    const dialog = document.createElement('dialog');
+    dialog.setAttribute('aria-labelledby', 'backupPasswordTitle');
+    dialog.innerHTML = `<form method="dialog"><h2 id="backupPasswordTitle">${creating ? 'Protect backup' : 'Unlock backup'}</h2>
+      <p>${creating ? 'Use at least 12 characters. Keep this password safe: it cannot be recovered.' : 'Enter the password used when this backup was exported.'}</p>
+      <label>Password <input name="password" type="password" autocomplete="${creating ? 'new-password' : 'current-password'}" required minlength="${creating ? 12 : 1}"></label>
+      ${creating ? '<label>Confirm password <input name="confirmation" type="password" autocomplete="new-password" required minlength="12"></label>' : ''}
+      <div class="actions"><button type="button" data-cancel>Cancel</button><button type="submit">Continue</button></div></form>`;
+    document.body.append(dialog);
+    dialog.querySelector('[data-cancel]').onclick = () => dialog.close();
+    dialog.querySelector('form').onsubmit = e => {
+      e.preventDefault();
+      const password = dialog.querySelector('[name=password]').value;
+      const confirmation = dialog.querySelector('[name=confirmation]');
+      if (confirmation && confirmation.value !== password) {
+        e.preventDefault(); confirmation.setCustomValidity('Passwords do not match.'); confirmation.reportValidity();
+      } else dialog.close(password);
+    };
+    dialog.querySelector('[name=confirmation]')?.addEventListener('input', e => e.target.setCustomValidity(''));
+    dialog.addEventListener('close', () => { const password = dialog.returnValue || null; dialog.remove(); resolve(password); }, { once: true });
+    dialog.showModal();
+  });
 }
 const csv = rows => rows.map(r => r.map(v => { v = String(v ?? ''); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; }).join(',')).join('\r\n');
 
@@ -1662,6 +1687,7 @@ function xlsx(sheets) {
 }
 
 async function downloadXlsx(name, sheets) {
+  if (!confirm('This spreadsheet contains readable records. Save it only to a protected location. Continue?')) return;
   const bytes = xlsx(sheets);
   let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   const saved = await window.bsp.saveFile(name, btoa(bin), [{ name: 'Excel workbook', extensions: ['xlsx'] }], 'base64');
@@ -1885,9 +1911,14 @@ Print the AUR form anyway?`)) return;
     download(`bsp-masterlist-${todayISO()}.csv`, csv(rows));
   },
   importJSON: async () => {
-    const text = await window.bsp.openFile([{ name: 'Backup', extensions: ['json'] }]);
-    if (!text) return;
     try {
+      let text = await window.bsp.openFile([{ name: 'Backup', extensions: ['json'] }]);
+      if (!text) return;
+      if (JSON.parse(text)?.format === 'ieces-bsp-backup-v1') {
+        const password = await backupPassword();
+        if (password === null) return;
+        text = await window.bsp.decryptBackup(text, password);
+      }
       const d = JSON.parse(text);
       if (!d || !Array.isArray(d.units) || !Array.isArray(d.adults)
         || d.units.some(u => !u || !Array.isArray(u.scouts) || u.scouts.some(s => !s || typeof s !== 'object' || Array.isArray(s)))
@@ -1898,7 +1929,14 @@ Print the AUR form anyway?`)) return;
       db = load(); syncedLearnerReceipts.clear(); render(); void syncLearnerReceipts(); toast('Backup imported');
     } catch (err) { alert('Could not import: ' + err.message); }
   },
-  exportJSON: () => download(`bsp-backup-${todayISO()}.json`, JSON.stringify(db, null, 2), 'application/json'),
+  exportJSON: async () => {
+    try {
+      const password = await backupPassword(true);
+      if (password === null) return;
+      const text = await window.bsp.encryptBackup(JSON.stringify(db), password);
+      await download(`bsp-backup-${todayISO()}.json`, text, 'application/json');
+    } catch (err) { alert('Could not export backup: ' + err.message); }
+  },
   startNewSchoolYear: () => {
     const current = db.settings.schoolYear || String(new Date().getFullYear());
     const scoutCount = db.units.reduce((n, u) => n + u.scouts.length, 0);

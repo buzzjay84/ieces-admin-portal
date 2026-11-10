@@ -48,6 +48,15 @@ begin
   if coalesce(settings->>'nextReceipt', '') !~ '^[0-9]+$'
     or (settings->>'nextReceipt')::numeric < 1 then raise exception 'Invalid next receipt number'; end if;
 
+  for rec in select doc as data union all select value from pg_catalog.jsonb_each(coalesce(doc->'archives', '{}'::jsonb))
+  loop
+    if jsonb_typeof(rec.data->'units') is distinct from 'array'
+      or jsonb_typeof(rec.data->'adults') is distinct from 'array' then raise exception 'Invalid BSP school-year records'; end if;
+    if exists (select 1 from pg_catalog.jsonb_array_elements(rec.data->'units') u
+      where jsonb_typeof(u.value) is distinct from 'object' or nullif(u.value->>'id', '') is null
+        or jsonb_typeof(u.value->'scouts') is distinct from 'array') then raise exception 'Invalid BSP unit'; end if;
+  end loop;
+
   select * into previous from public.bsp_workspace where id = true for update;
   if found then
     if previous.revision <> p_expected_revision then
@@ -109,6 +118,7 @@ begin
       religion = case when r.reg_type = 'adult' then nullif(rec.person->>'religion', '') else r.religion end,
       occupation = case when r.reg_type = 'adult' then nullif(rec.person->>'occupation', '') else r.occupation end,
       position_title = case when r.reg_type = 'adult' then nullif(rec.person->>'position', '') else r.position_title end,
+      email = case when r.reg_type = 'adult' then nullif(rec.person->>'email', '') else r.email end,
       status = 'imported', imported_at = coalesce(r.imported_at, now()),
       sy = coalesce(rec.school_year, r.sy),
       ar_no = case when coalesce(nullif(rec.person->'payment'->>'amountPaid', ''), '0')::numeric > 0 then nullif(rec.person->'payment'->>'receiptNo', '') else null end,

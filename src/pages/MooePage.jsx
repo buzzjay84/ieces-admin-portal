@@ -48,16 +48,16 @@ const OBJECT_CODES = [
   { code: "5020307000", label: "Drugs and Medicines Expenses" },
   { code: "5020308000", label: "Medical, Dental & Lab Supplies" },
   { code: "5020309000", label: "Fuel, Oil and Lubricants Expenses" },
-  { code: "5020311000", label: "Textbooks and Instructional Materials" },
+  { code: "5020311001", label: "Textbooks and Instructional Materials" },
   { code: "5020311002", label: "Teaching Supplies / Chalk Allowance" },
 
   // Semi-Expendable Property (< ₱50,000)
-  { code: "5020311001", label: "Semi-Expendable - Machinery" },
-  { code: "5020311002", label: "Semi-Expendable - Office Equipment" },
-  { code: "5020311003", label: "Semi-Expendable - ICT Equipment" },
-  { code: "5020311004", label: "Semi-Expendable - Communications Equipment" },
-  { code: "5020311007", label: "Semi-Expendable - Printing Equipment" },
-  { code: "5020311013", label: "Semi-Expendable - Furniture & Fixtures" },
+  { code: "5020321001", label: "Semi-Expendable - Machinery" },
+  { code: "5020321002", label: "Semi-Expendable - Office Equipment" },
+  { code: "5020321003", label: "Semi-Expendable - ICT Equipment" },
+  { code: "5020321007", label: "Semi-Expendable - Communications Equipment" },
+  { code: "5020321011", label: "Semi-Expendable - Printing Equipment" },
+  { code: "5020322001", label: "Semi-Expendable - Furniture & Fixtures" },
   { code: "5020321099", label: "Semi-Expendable - Other Property" },
   { code: "5020399000", label: "Other Supplies and Materials Expenses" },
 
@@ -175,14 +175,19 @@ export default function MooePage({ onBack, onLogout, user }) {
       return;
     }
 
-    const formattedData = (data || []).map((r) => ({
+    const formattedData = await Promise.all((data || []).map(async (r) => ({
       ...r,
       cy: r.cy || r.sy,
       liquidatedBy: r.liquidated_by,
       dateReceived: r.date_received,
       dateLiquidated: r.date_liquidated,
-      receipts: r.receipts || [],
-    }));
+      receipts: await Promise.all((r.receipts || []).map(async (receipt) => {
+        if (!receipt.path) return receipt;
+        const { data, error } = await supabase.storage.from(SUPABASE_BUCKET).createSignedUrl(receipt.path, 3600);
+        if (error) { showToast('Could not open a receipt. Refresh after signing in again.'); return { ...receipt, url: '' }; }
+        return { ...receipt, url: data.signedUrl };
+      })),
+    })));
 
     const sorted = formattedData.sort((a, b) => {
       if (a.cy !== b.cy) {
@@ -286,30 +291,23 @@ export default function MooePage({ onBack, onLogout, user }) {
     setRemovedReceipts((prev) => [...prev, storagePath]);
   };
 
-  // Upload new files to Supabase Storage, return array of public URLs
+  // Persist storage paths; authenticated reads get temporary signed URLs.
   const uploadReceipts = async (cy, month) => {
     if (!receiptFiles.length) return [];
     const uploaded = [];
     for (const file of receiptFiles) {
       const ext = file.name.split(".").pop();
-      const path = `${cy}/${month}/${Date.now()}_${Math.random()
-        .toString(36)
-        .slice(2)}.${ext}`;
+      const path = `${cy}/${month}/${crypto.randomUUID()}.${ext}`;
       const { error } = await supabase.storage
         .from(SUPABASE_BUCKET)
         .upload(path, file, { upsert: false });
 
       if (error) {
-        console.error("Upload error:", error);
-        showToast(`⚠ Failed to upload ${file.name}`);
-        continue;
+        if (uploaded.length) await supabase.storage.from(SUPABASE_BUCKET).remove(uploaded.map(receipt => receipt.path));
+        throw new Error(`Failed to upload ${file.name}. The entry was not saved.`);
       }
 
-      const { data: pubData } = supabase.storage
-        .from(SUPABASE_BUCKET)
-        .getPublicUrl(path);
-
-      uploaded.push({ url: pubData.publicUrl, path });
+      uploaded.push({ path });
     }
     return uploaded;
   };
@@ -409,49 +407,52 @@ export default function MooePage({ onBack, onLogout, user }) {
 
     const cy = deriveCYFromDate(dateLiquidated || dateReceived);
 
-    // Keep saved receipt files until the database confirms the change.
-    const newUploaded = await uploadReceipts(cy, month);
+    try {
+      // Keep saved receipt files until the database confirms the change.
+      const newUploaded = await uploadReceipts(cy, month);
 
-    const allReceipts = [...existingReceipts, ...newUploaded];
+      const allReceipts = [...existingReceipts, ...newUploaded];
 
-    const payload = {
-      cy,
-      sy: cy,
-      month,
-      allocation: numericAllocation,
-      items: items.map((i) => ({
-        objectCode: i.objectCode,
-        amount: parseNum(i.amount),
-      })),
-      total: totalExpenses,
-      balance,
-      liquidated_by: liquidatedBy,
-      date_received: dateReceived || null,
-      date_liquidated: dateLiquidated || null,
-      remarks,
-      receipts: allReceipts, // array of { url, path }
-    };
+      const payload = {
+        cy,
+        sy: cy,
+        month,
+        allocation: numericAllocation,
+        items: items.map((i) => ({
+          objectCode: i.objectCode,
+          amount: parseNum(i.amount),
+        })),
+        total: totalExpenses,
+        balance,
+        liquidated_by: liquidatedBy,
+        date_received: dateReceived || null,
+        date_liquidated: dateLiquidated || null,
+        remarks,
+        receipts: allReceipts.map(receipt => receipt.path ? { path: receipt.path } : receipt),
+      };
 
-    if (editEntry?.id) {
-      payload.id = editEntry.id;
-    }
+      if (editEntry?.id) {
+        payload.id = editEntry.id;
+      }
 
-    const { error } = await supabase
-      .from(MOOE_TABLE)
-      .upsert(payload, { onConflict: "cy, month" });
+      const { error } = await supabase
+        .from(MOOE_TABLE)
+        .upsert(payload, { onConflict: "cy, month" });
 
-    setUploading(false);
+      if (error) {
+        // A lost response can follow a committed save; keep newly uploaded receipts.
+        console.error("Supabase save error:", error);
+        setFormError(`Failed to save to Supabase: ${error.message}`);
+        return;
+      }
 
-    if (error) {
-      console.error("Supabase save error:", error);
-      setFormError(`Failed to save to Supabase: ${error.message}`);
-      return;
-    }
-
-    await deleteRemovedReceipts();
-    await loadRecords();
-    showToast("✅ MOOE entry saved to Supabase!");
-    setView("list");
+      await deleteRemovedReceipts();
+      await loadRecords();
+      showToast("✅ MOOE entry saved to Supabase!");
+      setView("list");
+    } catch (error) {
+      setFormError(error.message || 'Could not save the entry. Your form has been kept.');
+    } finally { setUploading(false); }
   };
 
   const handleDelete = async (entry) => {
@@ -808,6 +809,9 @@ export default function MooePage({ onBack, onLogout, user }) {
                         }
                       >
                         <option value="">— Select Account —</option>
+                        {row.objectCode && !OBJECT_CODES.some(item => item.code === row.objectCode) && (
+                          <option value={row.objectCode}>{row.objectCode} — Legacy code (review classification)</option>
+                        )}
                         {OBJECT_CODES.map((o) => (
                           <option key={o.code} value={o.code}>
                             {o.code} — {o.label}

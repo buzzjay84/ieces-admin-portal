@@ -1,7 +1,6 @@
 const { app, BrowserWindow, ipcMain, Menu, dialog, shell } = require('electron')
 const { autoUpdater } = require('electron-updater')
 const path = require('path')
-const fs = require('fs')
 const printing = require('./print.cjs')
 const bsp = require('./bsp/main.cjs')
 
@@ -21,22 +20,7 @@ const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 autoUpdater.autoDownload = true
 autoUpdater.autoInstallOnAppQuit = true
 
-// ── Data storage (JSON file, acts like simple DB) ──
-const dataDir = path.join(app.getPath('userData'), 'ieces-data')
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true })
-
-const dbFile = path.join(dataDir, 'ieces.json')
-
-function readDB() {
-  try {
-    if (fs.existsSync(dbFile)) return JSON.parse(fs.readFileSync(dbFile, 'utf8'))
-  } catch {}
-  return { mooe: [], users: [{ username: 'admin', password: 'ieces2024', name: 'Administrator' }] }
-}
-
-function writeDB(data) {
-  fs.writeFileSync(dbFile, JSON.stringify(data, null, 2))
-}
+const storage = require('./secure-store.cjs').createSecureStore(require('electron').safeStorage)
 
 // ── Window ──
 let win
@@ -133,6 +117,7 @@ function createWindow() {
   createApplicationMenu()
 
   // Open external links (target="_blank") in the user's default browser
+  win.webContents.on('will-navigate', e => e.preventDefault())
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url)
     return { action: 'deny' }
@@ -164,7 +149,18 @@ function createWindow() {
   })
 }
 
-app.whenReady().then(() => { if (ownsInstanceLock) createWindow() })
+app.whenReady().then(() => {
+  if (!ownsInstanceLock) return
+  try {
+    storage.read(path.join(app.getPath('userData'), 'ieces-data', 'ieces.json'))
+    bsp.migrateLocalStorage()
+    printing.cleanupPrintPreviewDir()
+    createWindow()
+  } catch (err) {
+    dialog.showErrorBox('Local records unavailable', err.message)
+    app.quit()
+  }
+})
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 
@@ -190,38 +186,6 @@ autoUpdater.on('error', (err) => {
 })
 
 // ── IPC Handlers ──
-
-// Auth
-ipcMain.handle('auth:login', (_, { username, password }) => {
-  const db = readDB()
-  const user = db.users.find(u => u.username === username && u.password === password)
-  if (user) return { ok: true, name: user.name }
-  return { ok: false }
-})
-
-// MOOE
-ipcMain.handle('mooe:getAll', () => {
-  const db = readDB()
-  return db.mooe || []
-})
-
-ipcMain.handle('mooe:save', (_, entry) => {
-  const db = readDB()
-  if (!db.mooe) db.mooe = []
-  const idx = db.mooe.findIndex(r => r.sy === entry.sy && r.month === entry.month)
-  entry.savedAt = new Date().toISOString()
-  if (idx >= 0) db.mooe[idx] = entry
-  else db.mooe.push(entry)
-  writeDB(db)
-  return { ok: true }
-})
-
-ipcMain.handle('mooe:delete', (_, { sy, month }) => {
-  const db = readDB()
-  db.mooe = (db.mooe || []).filter(r => !(r.sy === sy && r.month === month))
-  writeDB(db)
-  return { ok: true }
-})
 
 ipcMain.handle('app:getVersion', () => app.getVersion())
 

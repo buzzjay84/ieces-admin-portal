@@ -27,18 +27,19 @@ Deno.serve(async (request: Request) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  const { email, password, username, family_name, first_name, middle_initial } =
-    (await request.json()) as {
-      email?: string;
-      password?: string;
-      username?: string;
-      family_name?: string;
-      first_name?: string;
-      middle_initial?: string | null;
-    };
-
-  if (!email || !password || !username) {
-    return json(400, { error: "Email, password, and username are required." });
+  if (request.method !== "POST") return json(405, { error: "Use POST." });
+  let body: Record<string, unknown>;
+  try { body = await request.json(); }
+  catch { return json(400, { error: "Send a valid JSON object." }); }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return json(400, { error: "Send a valid JSON object." });
+  const { email, password, username, family_name, first_name, middle_initial } = body as {
+    email: string; password: string; username: string; family_name?: string; first_name?: string; middle_initial?: string | null;
+  };
+  if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || email.length > 254
+    || typeof password !== "string" || password.length < 6 || password.length > 1024
+    || typeof username !== "string" || !username.trim() || username.length > 100
+    || [family_name, first_name, middle_initial].some(value => value != null && (typeof value !== "string" || value.length > 100))) {
+    return json(400, { error: "Provide a valid email, password (at least 6 characters), username, and names." });
   }
 
   const normalizedEmail = email.trim().toLowerCase();
@@ -69,36 +70,30 @@ Deno.serve(async (request: Request) => {
   }
 
   // 3. Check if email already exists in auth.users (shared with another app)
-  const { data: listData, error: listErr } =
-    await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
-
-  if (listErr) {
-    return json(500, { error: "Could not verify user registry." });
+  let existingAuthUser: { id: string; email?: string } | undefined;
+  for (let page = 1; ; page++) {
+    const { data: listData, error: listErr } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 1000 });
+    if (listErr) return json(500, { error: "Could not verify user registry." });
+    existingAuthUser = listData.users.find((user: { email?: string }) => user.email?.toLowerCase() === normalizedEmail);
+    if (existingAuthUser || listData.users.length < 1000) break;
   }
-
-  const existingAuthUser = listData.users.find(
-    (u: { email?: string }) => u.email === normalizedEmail,
-  );
+  const authClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 
   let authUserId: string;
 
   if (existingAuthUser) {
-    // Email already in Auth (e.g. registered in BMI, Dashboard Manager, etc.)
-    // Reuse the same auth.users record — no "email exists" error.
-    authUserId = existingAuthUser.id as string;
-  } else {
-    // Brand-new email — create the auth user.
-    const { data: newUser, error: createErr } =
-      await supabaseAdmin.auth.admin.createUser({
-        email: normalizedEmail,
-        password,
-        email_confirm: true,
-      });
-
-    if (createErr) {
-      return json(400, { error: createErr.message });
+    // Owning an allowed email address alone is not proof of account ownership.
+    const { data: signedIn, error: signInErr } = await authClient.auth.signInWithPassword({ email: normalizedEmail, password });
+    if (signInErr || signedIn.user?.id !== existingAuthUser.id) {
+      return json(403, { error: "Use the existing account password before registering this app." });
     }
-    authUserId = newUser.user!.id;
+    authUserId = existingAuthUser.id;
+  } else {
+    const { data: newUser, error: createErr } = await supabaseAdmin.auth.admin.createUser({ email: normalizedEmail, password, email_confirm: true });
+    if (createErr || !newUser.user) return json(400, { error: createErr?.message || "Could not create account." });
+    authUserId = newUser.user.id;
   }
 
   // 4. Insert per-app profile into profiles table
